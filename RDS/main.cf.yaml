@@ -1,0 +1,134 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: |
+  Kaarstthenn Alexander - CloudFormation
+
+Parameters:
+  ProjectName:
+    Type: String
+  ENV:
+    Type: String
+  MN:
+    Type: String
+  Bucket:
+    Type: String
+  TemplatesPrefix:
+    Type: String
+    Default: templates
+  DatabaseName:
+    Type: String
+  MasterUsername:
+    Type: String
+  MasterUserPassword:
+    Type: String
+    NoEcho: true
+  DBClusterIdentifier:
+    Type: String
+  Engine:
+    Type: String
+  EngineVersion:
+    Type: String
+  MinCapacity:
+    Type: String
+  MaxCapacity:
+    Type: String
+  Tag:
+    Type: String
+    Default: 'RDS-resource'
+# Resources:
+  # RDS:
+  #   Type: AWS::CloudFormation::Stack
+  #   Properties:
+  #     Parameters:        
+  #       MasterUsername: !Sub "${MasterUsername}"
+  #       MasterUserPassword: !Sub "${MasterUserPassword}"
+  #       DBClusterIdentifier: !Sub "${DBClusterIdentifier}"
+  #       DatabaseName: !Sub "${DatabaseName}"
+  #       Engine: !Sub "${Engine}"
+  #       EngineVersion: !Sub "${EngineVersion}"
+  #       MinCapacity: !Sub "${MinCapacity}"
+  #       MaxCapacity: !Sub "${MaxCapacity}"
+  #     TemplateURL: !Sub "https://${Bucket}.s3.amazonaws.com/${TemplatesPrefix}/rds.yaml"
+Resources: 
+  VPC:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock: "10.0.0.0/16"
+      Tags:
+      - Key: "vpc-postgresql"
+        Value: !Ref "Tag"
+
+  SubnetA:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: !Select 
+        - 0
+        - !GetAZs 
+          Ref: 'AWS::Region'
+      VpcId: !Ref "VPC"
+      CidrBlock: "10.0.0.0/24"
+
+  SubnetB:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: !Select 
+        - 1
+        - !GetAZs 
+          Ref: 'AWS::Region'
+      VpcId: !Ref "VPC"
+      CidrBlock: "10.0.1.0/24"
+
+  RouteTable:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref "VPC"
+
+  SubnetGroup:
+    Type: "AWS::RDS::DBSubnetGroup"
+    Properties:
+      DBSubnetGroupName: "subnetgroup"
+      DBSubnetGroupDescription: "Subnet Group"
+      SubnetIds:
+      - !Ref "SubnetA"
+      - !Ref "SubnetB"
+
+  InstanceSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupName: "Example Security Group"
+      GroupDescription: "RDS traffic"
+      VpcId: !Ref "VPC"
+      SecurityGroupEgress:
+      - IpProtocol: "-1"
+        CidrIp: "0.0.0.0/0"
+
+  InstanceSecurityGroupIngress:
+    Type: "AWS::EC2::SecurityGroupIngress"
+    DependsOn: "InstanceSecurityGroup"
+    Properties:
+      GroupId: !Ref "InstanceSecurityGroup"
+      IpProtocol: "tcp"
+      FromPort: "0"
+      ToPort: "65535"
+      SourceSecurityGroupId: !Ref "InstanceSecurityGroup"
+
+  RDSCluster:
+    Type: "AWS::RDS::DBCluster"
+    Properties:
+      DBSubnetGroupName: !Ref "SubnetGroup"
+      MasterUsername: !Ref MasterUsername
+      MasterUserPassword: !Ref MasterUserPassword
+      DatabaseName: "ignitedb"
+      Engine: "aurora-postgresql"
+      EngineMode: "serverless"
+      VpcSecurityGroupIds:
+      - !Ref "InstanceSecurityGroup"
+      ScalingConfiguration:
+        AutoPause: true
+        MaxCapacity: 16
+        MinCapacity: 2
+        SecondsUntilAutoPause: 300
+
+Outputs:
+  VpcId:
+    Description: The VPC ID
+    Value: !Ref VPC
