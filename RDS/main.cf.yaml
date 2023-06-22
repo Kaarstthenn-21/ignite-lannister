@@ -124,7 +124,7 @@ Resources:
       - !Ref "InstanceSecurityGroup"
       ScalingConfiguration:
         AutoPause: true
-        MaxCapacity: 16
+        MaxCapacity: 8
         MinCapacity: 2
         SecondsUntilAutoPause: 300
 
