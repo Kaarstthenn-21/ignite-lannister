@@ -27,5 +27,5 @@ variable "ami" {
 
 variable "key_path" {
   description = "SSH Public Key path"
-  default = "/home/ubuntu/.ssh/vpc.pem"
+  default = "/home/ubuntu/.ssh/id_rsa.pub"
 }
