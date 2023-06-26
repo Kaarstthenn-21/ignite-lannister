@@ -1,0 +1,233 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: |
+  Kaarstthenn Alexander - CloudFormation
+
+Parameters:
+  ProjectName:
+    Type: String
+  ENV:
+    Type: String
+  MN:
+    Type: String
+  Bucket:
+    Type: String
+  TemplatesPrefix:
+    Type: String
+    Default: templates
+  DatabaseName:
+    Type: String
+  MasterUsername:
+    Type: String
+  MasterUserPassword:
+    Type: String
+    NoEcho: true
+  DBClusterIdentifier:
+    Type: String
+  Engine:
+    Type: String
+  EngineVersion:
+    Type: String
+  MinCapacity:
+    Type: String
+  MaxCapacity:
+    Type: String
+  Tag:
+    Type: String
+    Default: 'RDS-resource'
+resources:
+  Conditions:
+    CreateProdResources: !Equals ["${self:provider.stage}", "prod"]
+    CreateDevResources: !Not [!Equals ["${self:provider.stage}", "prod"]]
+  Resources:
+    VPC:
+      Type: "AWS::EC2::VPC"
+      Properties:
+        CidrBlock: "10.0.0.0/16"
+        EnableDnsHostnames: !If [CreateDevResources, true, false]
+        EnableDnsSupport: !If [CreateDevResources, true, false]
+        Tags:
+          - Key: "Name"
+            Value: ${self:custom.resources.vpcTag}
+    InternetGateway:
+      Type: "AWS::EC2::InternetGateway"
+    VPCGatewayAttachment:
+      Type: "AWS::EC2::VPCGatewayAttachment"
+      Properties:
+        VpcId: !Ref "VPC"
+        InternetGatewayId: !Ref "InternetGateway"
+    EIP:
+      Type: "AWS::EC2::EIP"
+      Properties:
+        Domain: "vpc"
+    Nat:
+      Type: "AWS::EC2::NatGateway"
+      Properties:
+        AllocationId: !GetAtt "EIP.AllocationId"
+        SubnetId: !Ref PublicSubnet
+
+    PublicSubnet:
+      Type: "AWS::EC2::Subnet"
+      Properties:
+        AvailabilityZone: !Select
+          - 0
+          - !GetAZs ${self:provider.region}
+        VpcId: !Ref "VPC"
+        CidrBlock: "10.0.0.0/24"
+    SubnetA:
+      Type: "AWS::EC2::Subnet"
+      Properties:
+        AvailabilityZone: !Select
+          - 1
+          - !GetAZs ${self:provider.region}
+        VpcId: !Ref "VPC"
+        CidrBlock: "10.0.1.0/24"
+    SubnetB:
+      Type: "AWS::EC2::Subnet"
+      Properties:
+        AvailabilityZone: !Select
+          - 2
+          - !GetAZs ${self:provider.region}
+        VpcId: !Ref "VPC"
+        CidrBlock: "10.0.2.0/24"
+    PublicSubnetA:
+      Type: "AWS::EC2::Subnet"
+      Condition: CreateDevResources
+      Properties:
+        MapPublicIpOnLaunch: true
+        AvailabilityZone: !Select
+          - 1
+          - !GetAZs ${self:provider.region}
+        VpcId: !Ref "VPC"
+        CidrBlock: "10.0.3.0/24"
+    PublicSubnetB:
+      Type: "AWS::EC2::Subnet"
+      Condition: CreateDevResources
+      Properties:
+        MapPublicIpOnLaunch: true
+        AvailabilityZone: !Select
+          - 2
+          - !GetAZs ${self:provider.region}
+        VpcId: !Ref "VPC"
+        CidrBlock: "10.0.4.0/24"
+
+    RouteTable:
+      Type: "AWS::EC2::RouteTable"
+      Properties:
+        VpcId: !Ref "VPC"
+    InternetRoute:
+      Type: "AWS::EC2::Route"
+      Properties:
+        DestinationCidrBlock: "0.0.0.0/0"
+        GatewayId: !Ref InternetGateway
+        RouteTableId: !Ref RouteTable
+    PublicSubnetRouteTableAssociation:
+      Type: "AWS::EC2::SubnetRouteTableAssociation"
+      Properties:
+        RouteTableId: !Ref RouteTable
+        SubnetId: !Ref PublicSubnet
+    PublicSubnetARouteTableAssociation:
+      Type: "AWS::EC2::SubnetRouteTableAssociation"
+      Condition: CreateDevResources
+      Properties:
+        RouteTableId: !Ref RouteTable
+        SubnetId: !Ref PublicSubnetA
+    PublicSubnetBRouteTableAssociation:
+      Type: "AWS::EC2::SubnetRouteTableAssociation"
+      Condition: CreateDevResources
+      Properties:
+        RouteTableId: !Ref RouteTable
+        SubnetId: !Ref PublicSubnetB
+
+    NatRouteTable:
+      Type: "AWS::EC2::RouteTable"
+      Properties:
+        VpcId: !Ref "VPC"
+    NatRoute:
+      Type: "AWS::EC2::Route"
+      Properties:
+        DestinationCidrBlock: "0.0.0.0/0"
+        NatGatewayId: !Ref "Nat"
+        RouteTableId: !Ref "NatRouteTable"
+    SubnetARouteTableAssociation:
+      Type: "AWS::EC2::SubnetRouteTableAssociation"
+      Properties:
+        RouteTableId: !Ref NatRouteTable
+        SubnetId: !Ref SubnetA
+    SubnetBRouteTableAssociation:
+      Type: "AWS::EC2::SubnetRouteTableAssociation"
+      Properties:
+        RouteTableId: !Ref NatRouteTable
+        SubnetId: !Ref SubnetB
+
+    InstanceSecurityGroup:
+      Type: "AWS::EC2::SecurityGroup"
+      Properties:
+        GroupName: "SecurityGroup"
+        GroupDescription: "SecurityGroup"
+        VpcId: !Ref "VPC"
+        SecurityGroupEgress:
+          - IpProtocol: "-1"
+            CidrIp: "0.0.0.0/0"
+    InstanceSecurityGroupIngress:
+      Type: "AWS::EC2::SecurityGroupIngress"
+      DependsOn: "InstanceSecurityGroup"
+      Properties:
+        GroupId: !Ref "InstanceSecurityGroup"
+        IpProtocol: "tcp"
+        FromPort: "0"
+        ToPort: "65535"
+        SourceSecurityGroupId: !Ref "InstanceSecurityGroup"
+    PublicInstanceSecurityGroupIngress:
+      Type: "AWS::EC2::SecurityGroupIngress"
+      DependsOn: "InstanceSecurityGroup"
+      Condition: CreateDevResources
+      Properties:
+        GroupId: !Ref "InstanceSecurityGroup"
+        IpProtocol: "-1"
+        CidrIp: "0.0.0.0/0"
+
+    DBSubnetGroup:
+      Type: "AWS::RDS::DBSubnetGroup"
+      Properties:
+        DBSubnetGroupName: ${self:service}-${self:provider.stage}-dbsubnetgroup
+        DBSubnetGroupDescription: "${self:service}-dbsubnetgroup"
+        SubnetIds:
+          - !Ref "SubnetA"
+          - !Ref "SubnetB"
+    PublicDBSubnetGroup:
+      Type: "AWS::RDS::DBSubnetGroup"
+      Condition: CreateDevResources
+      Properties:
+        DBSubnetGroupName: ${self:service}-${self:provider.stage}-publicdbsubnetgroup
+        DBSubnetGroupDescription: "${self:service}-publicdbsubnetgroup"
+        SubnetIds:
+          - !Ref "PublicSubnetA"
+          - !Ref "PublicSubnetB"
+    RDSCluster:
+      Type: "AWS::RDS::DBCluster"
+      Properties:
+        MasterUsername: ${self:custom.resources.databaseUser}
+        MasterUserPassword: ${self:custom.resources.databasePassword}
+        DatabaseName: ${self:custom.resources.databaseName}
+        Engine: "aurora-postgresql"
+        EngineVersion: "14.3"
+        ServerlessV2ScalingConfiguration:
+          MinCapacity: 0.5
+          MaxCapacity: 2
+        VpcSecurityGroupIds:
+          - !Ref "InstanceSecurityGroup"
+        DBSubnetGroupName: !If [CreateDevResources, !Ref "PublicDBSubnetGroup", !Ref "DBSubnetGroup"]
+    DBInstance1:
+      Type: AWS::RDS::DBInstance
+      Properties:
+        DBClusterIdentifier: !Ref "RDSCluster"
+        DBInstanceClass: db.serverless
+        PubliclyAccessible: !If [CreateDevResources, true, false]
+        Engine: aurora-postgresql
+    DBInstance2:
+      Type: AWS::RDS::DBInstance
+      Properties:
+        DBClusterIdentifier: !Ref "RDSCluster"
+        DBInstanceClass: db.serverless
+        PubliclyAccessible: !If [CreateDevResources, true, false]
+        Engine: aurora-postgresql
